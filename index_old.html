@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Moisture Chart - Bedroom plants</title>
+  <!-- Load Chart.js from a CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h1>Hourly Moisture Averages - Bedroom plants</h1>
+  <canvas id="moistureChart" width="800" height="400"></canvas>
+  <div id="controls">
+    <label for="intervalSlider">Averaging Interval (minutes): </label>
+    <input
+      type="range"
+      id="intervalSlider"
+      min="10"
+      max="1440"
+      step="10"
+      value="10"
+      oninput="updateIntervalLabel(this.value)"
+      onchange=""
+    />
+    <span id="intervalLabel">10</span> minutes
+  </div>
+
+
+  <script>
+    // MAIN FUNCTION: Load the CSV, process it, then draw the chart
+    async function loadAndPlotCSV() {
+      try {
+        // 1) Fetch the CSV
+        const response = await fetch('/bedroom_plant_moisture_data.csv');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const csvText = await response.text();
+
+        // 2) Parse the CSV into lines
+        const lines = csvText.trim().split('\n');
+        if (lines.length < 2) {
+          throw new Error("CSV has no data rows");
+        }
+
+        // First line is the header: ["timestamp","Basil","Rosemary","Mint",...]
+        const header = lines[0].split(',');
+
+        // We'll group data by "YYYY-MM-DD HH" for hourly averages
+        // Structure: hourlyData[hourString][sensorName] = array of values
+        const hourlyData = {};
+
+        // 3) Process each subsequent line
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length !== header.length) {
+            // Skip malformed lines
+            continue;
+          }
+
+          // Parse timestamp
+          const timeString = cols[0];
+          const timestamp = new Date(timeString);
+          if (isNaN(timestamp.getTime())) {
+            // Skip invalid date
+            continue;
+          }
+
+          // Build an "hour key" like "2025-03-04 12"
+          const year  = timestamp.getFullYear();
+          const month = String(timestamp.getMonth() + 1).padStart(2, '0');
+          const day   = String(timestamp.getDate()).padStart(2, '0');
+          const hour  = String(timestamp.getHours()).padStart(2, '0');
+          const hourKey = `${year}-${month}-${day} ${hour}`;
+
+          // Ensure we have a structure for this hour
+          if (!hourlyData[hourKey]) {
+            hourlyData[hourKey] = {};
+            // Initialize arrays for each sensor in the header
+            for (let j = 1; j < header.length; j++) {
+              hourlyData[hourKey][header[j]] = [];
+            }
+          }
+
+          // Parse each sensor’s value
+          for (let j = 1; j < header.length; j++) {
+            const sensorName = header[j];
+            const value = parseFloat(cols[j]);
+            if (!isNaN(value)) {
+              hourlyData[hourKey][sensorName].push(value);
+            }
+          }
+        }
+
+        // 4) Compute average moisture per hour for each sensor
+        // Sort hour keys chronologically
+        const sortedHours = Object.keys(hourlyData).sort();
+
+        // Prepare a place to store each sensor’s averaged data
+        // sensorAverages[sensorName] = [avg1, avg2, avg3, ...]
+        const sensorAverages = {};
+        for (let j = 1; j < header.length; j++) {
+          sensorAverages[header[j]] = [];
+        }
+
+        // Labels for the X-axis
+        const labels = [];
+
+        for (const hourKey of sortedHours) {
+          labels.push(hourKey);
+          for (let j = 1; j < header.length; j++) {
+            const sensorName = header[j];
+            const values = hourlyData[hourKey][sensorName];
+            if (values && values.length > 0) {
+              const avg = values.reduce((a, b) => a + b, 0) / values.length;
+              sensorAverages[sensorName].push(avg);
+            } else {
+              // No data for this hour => push null or 0
+              sensorAverages[sensorName].push(null);
+            }
+          }
+        }
+
+        // 5) Build Chart.js datasets
+        const datasets = [];
+        for (let j = 1; j < header.length; j++) {
+          const sensorName = header[j];
+          datasets.push({
+            label: sensorName,
+            data: sensorAverages[sensorName],
+            fill: false,
+            borderColor: getRandomColor(),
+            tension: 0.1
+          });
+        }
+
+        // 6) Render the chart
+        const ctx = document.getElementById('moistureChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: datasets
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: {
+                ticks: {
+                  autoSkip: true,
+                  maxRotation: 90,
+                  minRotation: 45
+                }
+              },
+              y: {
+                beginAtZero: true,
+                suggestedMax: 100
+              }
+            }
+          }
+        });
+
+      } catch (error) {
+        console.error("Error loading/plotting CSV:", error);
+      }
+    }
+
+    function updateIntervalLabel(value) {
+      document.getElementById('intervalLabel').textContent = value;
+    }
+
+    // Utility: random color for each sensor line
+    function getRandomColor() {
+      const r = Math.floor(Math.random() * 255);
+      const g = Math.floor(Math.random() * 255);
+      const b = Math.floor(Math.random() * 255);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    // Call the function once the page loads
+    loadAndPlotCSV();
+  </script>
+</body>
+</html>

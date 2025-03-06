@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Moisture Chart with Interval Slider</title>
+  <!-- Load Chart.js from a CDN -->
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+    }
+    #controls {
+      margin-bottom: 10px;
+    }
+    #intervalLabel {
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Moisture Chart with Variable Time Averaging</h1>
+
+  <div id="controls">
+    <label for="intervalSlider">Averaging Interval (minutes): </label>
+    <input
+      type="range"
+      id="intervalSlider"
+      min="10"
+      max="1440"
+      step="10"
+      value="60"
+      oninput="updateIntervalLabel(this.value)"
+      onchange="updateChart(this.value)"
+    />
+    <span id="intervalLabel">60</span> minutes
+  </div>
+
+  <canvas id="moistureChart" width="800" height="400"></canvas>
+
+  <script>
+    // We'll store the parsed CSV data globally so we only fetch it once.
+    let parsedData = [];     // Array of objects { date: Date, values: {SensorName: number, ...} }
+    let headerSensors = [];  // e.g. ["Basil","Rosemary","Mint"]
+    let myChart = null;      // Chart.js instance
+
+    // 1) On page load, fetch the CSV and initialize the chart with a default interval (60 mins).
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadCSV('/bedroom_plant_moisture_data.csv');   // Adjust path if needed
+      initChart();                           // Create an empty chart
+      // updateChart(60);                       // Default interval = 60 minutes
+    });
+
+    // 2) Fetch and parse the CSV
+    async function loadCSV(csvUrl) {
+      try {
+        const response = await fetch(csvUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const csvText = await response.text();
+
+        const lines = csvText.trim().split('\n');
+        if (lines.length < 2) {
+          throw new Error("CSV has no data rows");
+        }
+
+        // First line is the header: e.g. ["timestamp","Basil","Rosemary","Mint",...]
+        const header = lines[0].split(',');
+        if (header.length < 2) {
+          throw new Error("CSV header is too short");
+        }
+
+        // We'll assume the first column is always "timestamp"
+        // The rest are sensor names
+        headerSensors = header.slice(1);
+
+        // Parse each data line
+        parsedData = [];  // reset in case we reload
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length !== header.length) {
+            // Skip malformed lines
+            continue;
+          }
+          // cols[0] = timestamp string
+          const timestampStr = cols[0];
+          const date = new Date(timestampStr);
+          if (isNaN(date.getTime())) {
+            // Skip invalid date
+            continue;
+          }
+
+          // Build a "values" object for the sensors
+          const sensorValues = {};
+          for (let j = 1; j < header.length; j++) {
+            const sensorName = header[j];
+            const val = parseFloat(cols[j]);
+            sensorValues[sensorName] = isNaN(val) ? null : val;
+          }
+
+          parsedData.push({ date, values: sensorValues });
+        }
+
+        console.log(`Loaded ${parsedData.length} data rows from CSV.`);
+      } catch (error) {
+        console.error("Error loading CSV:", error);
+      }
+    }
+
+    // 3) Initialize an empty Chart.js line chart
+    function initChart() {
+      const ctx = document.getElementById('moistureChart').getContext('2d');
+      myChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],    // We'll fill these dynamically
+          datasets: []   // We'll fill these dynamically
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: {
+              type: 'time',
+              time: {
+                // We'll feed actual Date objects or ISO strings as labels
+                displayFormats: {
+                  minute: 'MMM d HH:mm',
+                  hour:   'MMM d HH:00',
+                  day:    'MMM d'
+                }
+              },
+              title: {
+                display: true,
+                text: 'Time'
+              }
+            },
+            y: {
+              beginAtZero: true,
+              suggestedMax: 100,
+              title: {
+                display: true,
+                text: 'Moisture (%)'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // 4) Group data by the chosen interval (in minutes) and update the chart
+    function updateChart(intervalMinutes) {
+      // 4.1) Group data
+      const grouped = groupDataByInterval(parsedData, intervalMinutes);
+
+      // 4.2) Prepare Chart.js labels and datasets
+      // "grouped" structure:
+      // {
+      //   labels: [Date1, Date2, ...],
+      //   sensorAverages: {
+      //     Basil: [avg1, avg2, ...],
+      //     Rosemary: [avg1, avg2, ...],
+      //     ...
+      //   }
+      // }
+      const newLabels = grouped.labels;
+      const newDatasets = [];
+
+      for (const sensorName of headerSensors) {
+        newDatasets.push({
+          label: sensorName,
+          data: grouped.sensorAverages[sensorName].map((val, idx) => ({
+            x: newLabels[idx],
+            y: val
+          })),
+          fill: false,
+          borderColor: getRandomColor(),
+          tension: 0.1
+        });
+      }
+
+      // 4.3) Update the chart
+      myChart.data.labels = newLabels;
+      myChart.data.datasets = newDatasets;
+      myChart.update();
+    }
+
+    // 5) Group data by an interval (in minutes) and compute averages
+    function groupDataByInterval(dataArray, intervalMins) {
+      // We'll bucket data by "epoch time // (intervalMs)" so each bucket
+      // covers that many minutes
+      const intervalMs = intervalMins * 60_000; // minutes -> ms
+
+      // Buckets structure: { bucketKey: { sensorName: [values], ... } }
+      const buckets = {};
+
+      for (const row of dataArray) {
+        const ms = row.date.getTime();
+        // e.g. 1677942800000 => integer multiple of intervalMs
+        const bucketStart = Math.floor(ms / intervalMs) * intervalMs;
+
+        if (!buckets[bucketStart]) {
+          // Initialize arrays for each sensor
+          buckets[bucketStart] = {};
+          for (const sensorName of headerSensors) {
+            buckets[bucketStart][sensorName] = [];
+          }
+        }
+
+        // Push values into the appropriate sensor array
+        for (const sensorName of headerSensors) {
+          const val = row.values[sensorName];
+          if (val !== null && !isNaN(val)) {
+            buckets[bucketStart][sensorName].push(val);
+          }
+        }
+      }
+
+      // Sort the bucket keys (numerically ascending)
+      const sortedKeys = Object.keys(buckets).map(k => parseInt(k)).sort((a,b) => a - b);
+
+      // We'll return { labels: [...Date], sensorAverages: { sensorName: [...numbers] } }
+      const labels = [];
+      const sensorAverages = {};
+      for (const sensorName of headerSensors) {
+        sensorAverages[sensorName] = [];
+      }
+
+      for (const key of sortedKeys) {
+        const bucketDate = new Date(key); // This is the start of the interval
+        labels.push(bucketDate);
+
+        for (const sensorName of headerSensors) {
+          const arr = buckets[key][sensorName];
+          if (arr && arr.length > 0) {
+            const avg = arr.reduce((sum, val) => sum + val, 0) / arr.length;
+            sensorAverages[sensorName].push(avg);
+          } else {
+            sensorAverages[sensorName].push(null);
+          }
+        }
+      }
+
+      return { labels, sensorAverages };
+    }
+
+    // 6) Utility to update the label next to the slider
+    function updateIntervalLabel(value) {
+      document.getElementById('intervalLabel').textContent = value;
+    }
+
+    // 7) Utility: pick a random color for each sensor’s line
+    function getRandomColor() {
+      const r = Math.floor(Math.random() * 255);
+      const g = Math.floor(Math.random() * 255);
+      const b = Math.floor(Math.random() * 255);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  </script>
+</body>
+</html>

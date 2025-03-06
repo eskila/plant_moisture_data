@@ -1,0 +1,12 @@
+{
+  "pins": [
+    {
+      "pin": 34,
+      "plant_name": "Geranium"
+    }
+  ],
+  "esp_ip": "192.168.1.189",
+  "csv_path": "/Users/eskilandersen/plant_moisture_data/bedroom_plant_moisture_data.csv",
+  "dry_value": 2600,
+  "wet_value": 900
+}
