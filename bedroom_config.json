@@ -7,6 +7,6 @@
   ],
   "esp_ip": "192.168.1.189",
   "csv_path": "/Users/eskilandersen/plant_moisture_data/bedroom_plant_moisture_data.csv",
-  "dry_value": 3000,
-  "wet_value": 344
+  "dry_value": 3200,
+  "wet_value": 1100
 }
