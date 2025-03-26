@@ -2,7 +2,15 @@
   "pins": [
     {
       "pin": 34,
-      "plant_name": "Geranium"
+      "plant_name": "Geranium s1"
+    },
+    {
+      "pin": 33,
+      "plant_name": "Geranium s2"
+    },
+    {
+      "pin": 35,
+      "plant_name": "Monsterra s1"
     }
   ],
   "esp_ip": "192.168.1.189",
