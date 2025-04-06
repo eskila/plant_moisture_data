@@ -2,11 +2,25 @@
 #include <WebServer.h>
 #include "secrets.h"  // WiFi credentials
 
+// Designed for the ESP32-Wroom-32 development board
 // Create a web server on port 80
 WebServer server(80);
 
 // Define which pins are valid analog inputs for your sensors
-// (Example: GPIO32, 33, 34, 35, 36, 39 on ADC1)
+// Since we're using Wi-Fi, we should limit ourselves to the 6
+// available GPIO pins on ADC1
+// (Example: GPIO: 32, 33, 34, 35, 36, 39 on ADC1)
+/*
+We use the GPIO # to address the pin in code
+| Pin silkcsreen label| ADC1 #|GPIO # | 
+|---------------------|-------|-------|
+| VP                  | 0     | 36    |
+| VN                  | 3     | 39    |
+| D34                 | 6     | 34    |
+| D35                 | 7     | 35    |
+| D32                 | 4     | 32    |
+| D33                 | 5     | 33    |  
+*/
 int validPins[] = {33, 34, 35, 36, 39};
 const int numValidPins = sizeof(validPins) / sizeof(validPins[0]);
 
@@ -19,6 +33,7 @@ void setup() {
 
   // Connect to your Wi-Fi network
   Serial.print("Connecting to ");
+  // Credentials are defined in secrets.h
   Serial.println(WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PWD);
 
