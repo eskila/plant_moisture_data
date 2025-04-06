@@ -2,6 +2,9 @@
 #include <WebServer.h>
 #include "secrets.h"  // WiFi credentials
 
+const int warningLEDThreshold = 1600;
+const int warningLEDPin = 5;
+
 // Designed for the ESP32-Wroom-32 development board
 // Create a web server on port 80
 WebServer server(80);
@@ -21,8 +24,8 @@ We use the GPIO # to address the pin in code
 | D32                 | 4     | 32    |
 | D33                 | 5     | 33    |  
 */
-int validPins[] = {33, 34, 35, 36, 39};
-const int numValidPins = sizeof(validPins) / sizeof(validPins[0]);
+int sensorPins[] = {33, 34, 35, 36, 39};
+const int numSensorPins = sizeof(sensorPins) / sizeof(sensorPins[0]);
 
 // ---------------------------------------------------------------------
 // 1) Setup: Connect to Wi-Fi, start the server, define request handler
@@ -56,10 +59,30 @@ void setup() {
   Serial.println("HTTP server started.");
 }
 
-// ---------------------------------------------------------------------
-// 2) Main Loop: Handle incoming client requests
-// ---------------------------------------------------------------------
 void loop() {
+
+  int minReading = 4095;  // Max possible ADC 12 bit value
+  for( int i = 0; i < numSensorPins; i++)
+  {
+    int reading = analogRead(sensorPins[i]);
+    if( reading < minReading )
+    {
+      minReading = reading;
+    }
+  }
+
+  Serial.print("Minimum sensor reading: ");
+  Serial.println(minReading);
+
+  // Turn on the red warning LED when we cross a moisture treshold,
+  // indicating that it is time to water one or more plants.
+  if( minReading < warningLEDThreshold )
+  {
+    digitalWrite(warningLEDPin, HIGH);
+  } else {
+    digitalWrite(warningLEDPin, LOW);
+  } 
+
   // Let the server process any incoming requests
   server.handleClient();
 }
@@ -86,10 +109,10 @@ void handleRequest() {
     return;
   }
 
-  // Check if the requested pin is in our validPins list
+  // Check if the requested pin is in our sensorPins list
   bool isValid = false;
-  for (int i = 0; i < numValidPins; i++) {
-    if (validPins[i] == requestedPin) {
+  for (int i = 0; i < numSensorPins; i++) {
+    if (sensorPins[i] == requestedPin) {
       isValid = true;
       break;
     }
