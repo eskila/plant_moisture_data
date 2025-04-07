@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ArduinoJson.h>
 #include "secrets.h"  // WiFi credentials
 
 const int warningLEDThreshold = 1600;
@@ -26,11 +27,16 @@ We use the GPIO # to address the pin in code
 */
 int sensorPins[] = {33, 34, 35, 36, 39};
 const int numSensorPins = sizeof(sensorPins) / sizeof(sensorPins[0]);
+int sensorValues[numSensorPins];
+
 
 // ---------------------------------------------------------------------
 // 1) Setup: Connect to Wi-Fi, start the server, define request handler
 // ---------------------------------------------------------------------
 void setup() {
+  for( int i = 0; i < numSensorPins; i++) {
+    sensorValues[i] = 0;
+  }
   Serial.begin(115200);
   delay(1000);
 
@@ -38,11 +44,15 @@ void setup() {
   Serial.print("Connecting to ");
   // Credentials are defined in secrets.h
   Serial.println(WIFI_SSID);
+  WiFi.mode(WIFI_MODE_STA); 
+  WiFi.setTxPower(WIFI_POWER_MINUS_1dBm);
+  Serial.println("set power to WIFI_POWER_MINUS_1dBm: " + String(WIFI_POWER_MINUS_1dBm));
   WiFi.begin(WIFI_SSID, WIFI_PWD);
 
   // Wait for connection
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
+    yield();
     Serial.print(".");
   }
   Serial.println("");
@@ -61,10 +71,15 @@ void setup() {
 
 void loop() {
 
+  for( int i = 0; i < numSensorPins; i++)
+  {
+    sensorValues[i] = analogRead(sensorPins[i]);
+  }
+
   int minReading = 4095;  // Max possible ADC 12 bit value
   for( int i = 0; i < numSensorPins; i++)
   {
-    int reading = analogRead(sensorPins[i]);
+    int reading = sensorValues[i];
     if( reading < minReading )
     {
       minReading = reading;
@@ -85,6 +100,7 @@ void loop() {
 
   // Let the server process any incoming requests
   server.handleClient();
+  delay(10);
 }
 
 // ---------------------------------------------------------------------
@@ -99,6 +115,21 @@ void handleRequest() {
   // Remove the leading '/'
   if (path.startsWith("/")) {
     path.remove(0, 1);  // e.g. "32"
+  }
+
+  // Return all pins/values if no pin is specified
+  if( path.length() == 0)
+  {
+    JsonDocument doc;
+    for( int i = 0; i < numSensorPins; i++)
+    {
+      doc["pin" + String(sensorPins[i])] = sensorValues[i];
+    }
+
+    String jsonResponse;
+    serializeJson(doc, jsonResponse);
+
+    server.send(200, "application/json", jsonResponse);
   }
 
   // Convert to integer
